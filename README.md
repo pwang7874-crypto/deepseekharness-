@@ -21,7 +21,7 @@
 
 1. 安装 Node.js 24、pnpm 11、Rust stable，以及当前系统所需的 [Tauri 2 前置依赖](https://v2.tauri.app/start/prerequisites/)。
 2. 运行 `pnpm install && pnpm build`。
-3. 在 DSH profile 中安装 `packages/dsh-pet-plugin`，并把 `petBridge.token` 改为一个随机值。
+3. 在 DSH profile 中安装 `packages/dsh-pet-plugin`，并把 `pet-bridge.token` 改为一个随机值。
 4. 在桌宠设置中填写同一个 token，然后运行 `pnpm dev:companion`。
 
 安装插件后，桌面端连接 `http://127.0.0.1:3080/dsh-pet/events`。它使用 token 验证，拒绝非本机和未验证请求。

@@ -45,7 +45,7 @@ export function ProfilePanel({ value, onSave, onClose }: { value: PetProfile; on
     <label>人物介绍<textarea value={draft.introduction} maxLength={1000} rows={3} onChange={(e) => set('introduction', e.target.value)} /></label>
     <label>说话语气<input value={draft.tone} maxLength={200} placeholder="例如：温柔、俏皮，偶尔撒娇" onChange={(e) => set('tone', e.target.value)} /></label>
     <label>系统音色<select value={draft.systemVoice} onChange={(e) => set('systemVoice', e.target.value)}><option value="">自动选择中文音色</option>{voices.map((voice) => <option key={voice.voiceURI} value={voice.voiceURI}>{voice.name} · {voice.lang}</option>)}</select></label>
-    <label>DSH 连接令牌<input type="password" value={draft.bridgeToken} placeholder="与 petBridge.token 保持一致" onChange={(e) => set('bridgeToken', e.target.value)} /></label>
+    <label>DSH 连接令牌<input type="password" value={draft.bridgeToken} placeholder="与 pet-bridge.token 保持一致" onChange={(e) => set('bridgeToken', e.target.value)} /></label>
     <label className="upload">上传静态/GIF 皮肤<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={(e) => readSmallFile(e, (data) => set('skinDataUrl', data))} /><span>{draft.skinDataUrl ? '已选择皮肤' : '选择图片'}</span></label>
     <label>Live2D model3.json URL<input value={draft.live2dModelUrl} placeholder="http://127.0.0.1:…/model3.json" onChange={(e) => set('live2dModelUrl', e.target.value)} /></label>
     <label className="upload">上传音色参考<input type="file" accept="audio/*" onChange={(e) => readSmallFile(e, (data) => set('voiceSampleDataUrl', data))} /><span>{draft.voiceSampleDataUrl ? '已保存音色样本' : '选择音频'}</span></label>

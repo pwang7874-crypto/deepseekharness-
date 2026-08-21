@@ -8,7 +8,7 @@ const Config = z.object({
     completionReminder: z.boolean().default(true),
     allowModelNotifications: z.boolean().default(true),
 }).default({ token: 'change-me-before-production', completionReminder: true, allowModelNotifications: true });
-const NS = settingsNamespace('petBridge');
+const NS = settingsNamespace('pet-bridge');
 class EventHub {
     clients = new Set();
     publish(event) {
