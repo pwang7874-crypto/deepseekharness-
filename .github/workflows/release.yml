@@ -3,6 +3,7 @@ name: Publish desktop installers
 on:
   push:
     tags: ["v*"]
+    branches: [fix/pet-bridge-namespace]
 
 permissions:
   contents: write
@@ -55,9 +56,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: apps/pet-companion
-          tagName: ${{ github.ref_name }}
-          releaseName: DSH Pet Voice ${{ github.ref_name }}
+          tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'v0.2.0-beta.1' }}
+          releaseName: DSH Pet Voice ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'v0.2.0-beta.1' }}
+          releaseCommitish: ${{ github.sha }}
           releaseBody: 下载与你电脑系统相符的安装包。首次打开桌宠会自动寻找 DSH、安装内置插件并连接，不需要运行 Git 或 pnpm 命令。
           releaseDraft: false
-          prerelease: false
+          prerelease: ${{ !startsWith(github.ref, 'refs/tags/') }}
           args: ${{ matrix.args }}
