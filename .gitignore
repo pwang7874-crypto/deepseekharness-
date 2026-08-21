@@ -1,0 +1,14 @@
+node_modules
+dist
+lib
+!packages/dsh-pet-plugin/lib/
+!packages/dsh-pet-plugin/lib/**
+target
+src-tauri/target
+**/src-tauri/gen/
+**/src-tauri/icons/android/
+**/src-tauri/icons/ios/
+*.tsbuildinfo
+.DS_Store
+outputs/
+work/

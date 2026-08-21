@@ -1,0 +1,22 @@
+{
+  "name": "@dsh-pet/companion",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "check": "tsc -b --pretty false",
+    "test": "vitest run",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.8.0",
+    "@tauri-apps/plugin-notification": "^2.3.0",
+    "pixi.js": "^6.5.10",
+    "pixi-live2d-display": "^0.4.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": { "@tauri-apps/cli": "^2.8.0", "@types/react": "^18.3.23", "@types/react-dom": "^18.3.7", "@vitejs/plugin-react": "^4.4.1", "typescript": "^5.8.3", "vite": "^6.3.5", "vitest": "^3.2.4" }
+}

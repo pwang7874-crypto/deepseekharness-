@@ -1,0 +1,11 @@
+{
+  "name": "dsh-pet-voice-v2",
+  "private": true,
+  "packageManager": "pnpm@11.19.0",
+  "scripts": {
+    "build": "pnpm --filter './packages/**' --filter './apps/**' build",
+    "check": "pnpm --filter './packages/**' --filter './apps/**' check",
+    "test": "pnpm --filter './apps/**' test",
+    "dev:companion": "pnpm --filter @dsh-pet/companion dev"
+  }
+}

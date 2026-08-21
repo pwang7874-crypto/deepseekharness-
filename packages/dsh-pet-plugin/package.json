@@ -1,0 +1,23 @@
+{
+  "name": "dsh-pet-voice-v2",
+  "version": "0.1.0",
+  "description": "Desktop pet event bridge for DeepSeek Harness",
+  "license": "MIT",
+  "type": "module",
+  "main": "./lib/index.js",
+  "exports": { ".": "./lib/index.js" },
+  "files": ["lib", "cordis.patch.yml", "README.md", "LICENSE"],
+  "dsh": { "bundle": { "patch": "./cordis.patch.yml" } },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh-settings": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-system-prompt": "^0.1.0-rc.8",
+    "@deepseek-ai/dsh-tools": "^0.1.0-rc.6",
+    "@deepseek-ai/schemastery": "^3.18.1"
+  },
+  "peerDependencies": { "@deepseek-ai/cordis": "^4.0.0" },
+  "devDependencies": { "typescript": "^5.8.3" }
+}

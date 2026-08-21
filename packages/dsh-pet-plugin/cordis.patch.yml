@@ -1,0 +1,4 @@
+- insert:
+    - id: dsh-pet-voice-v2
+      name: dsh-pet-voice-v2
+      config: {}
