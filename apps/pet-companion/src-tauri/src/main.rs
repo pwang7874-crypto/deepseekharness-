@@ -489,7 +489,18 @@ fn ensure_plugin(handle: &tauri::AppHandle, explicit: Option<PathBuf>) -> Bootst
         .is_ok_and(|output| {
             output.status.success() && String::from_utf8_lossy(&output.stdout).contains(PLUGIN_NAME)
         });
-    let needs_install = !marker.is_file() || !config_has_plugin;
+    if dsh.recovery_state.as_deref().is_some_and(Path::is_file) {
+        return BootstrapReport::new(
+            "restart-required",
+            "DSH Desktop 正在等待完成插件安装，请完全退出并重新打开一次 DSH Desktop。",
+            Some(dsh_path),
+        );
+    }
+
+    // A plugin may already have been installed from DSH Desktop's built-in
+    // terminal or by an earlier companion build. Adopt that healthy config
+    // instead of installing it again merely because our local marker is absent.
+    let needs_install = !config_has_plugin;
 
     if needs_install {
         if let Err(error) = fs::create_dir_all(&app_data) {
@@ -533,17 +544,20 @@ fn ensure_plugin(handle: &tauri::AppHandle, explicit: Option<PathBuf>) -> Bootst
                 error.to_string(),
             );
         }
+    } else if !marker.is_file() {
+        if let Err(error) =
+            fs::create_dir_all(&app_data).and_then(|_| fs::write(&marker, PLUGIN_VERSION))
+        {
+            return BootstrapReport::failed(
+                "插件已安装，但无法保存安装状态。",
+                Some(dsh_path),
+                error.to_string(),
+            );
+        }
     }
 
     if bridge_plugin_is_active() {
         return BootstrapReport::new("ready", "已连接到 DeepSeek Harness", Some(dsh_path));
-    }
-    if dsh.recovery_state.as_deref().is_some_and(Path::is_file) {
-        return BootstrapReport::new(
-            "restart-required",
-            "插件已自动装入当前 DSH Desktop 配置，请完全退出并重新打开一次 DSH Desktop。",
-            Some(dsh_path),
-        );
     }
     if bridge_port_is_open() {
         return BootstrapReport::new(

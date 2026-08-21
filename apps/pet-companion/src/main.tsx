@@ -105,6 +105,8 @@ function App() {
     if (typeof selected === 'string') await runBootstrap(selected)
   }
 
+  const needsDshPicker = bootstrap.state === 'missing-dsh' || (bootstrap.state === 'failed' && !bootstrap.dshPath)
+
   const beginWindowDrag = (event: ReactPointerEvent<HTMLElement>) => {
     if (event.button !== 0 || settingsOpen) return
     const target = event.target as HTMLElement
@@ -154,8 +156,8 @@ function App() {
     {bootstrap.state !== 'ready' && bootstrap.state !== 'checking' && <button
       className="bootstrap-action"
       title={bootstrap.detail}
-      onClick={() => bootstrap.state === 'missing-dsh' || bootstrap.state === 'failed' ? void chooseDsh() : void runBootstrap(bootstrap.dshPath)}
-    >{bootstrap.state === 'restart-required' ? '我已重启，重新检测' : '选择 DSH 并自动安装'}</button>}
+      onClick={() => needsDshPicker ? void chooseDsh() : void runBootstrap(bootstrap.dshPath)}
+    >{bootstrap.state === 'restart-required' ? '我已重启，重新检测' : needsDshPicker ? '选择 DSH 并自动安装' : '重试自动安装'}</button>}
     <section className="bubble"><strong>{profile.name || defaultProfile.name}</strong><span title={bootstrap.detail}><i className="status-dot" />{message}</span></section>
     <button className="mute" onClick={() => window.speechSynthesis.cancel()} title="停止朗读">■</button>
     <button className="close" onClick={() => void getCurrentWindow().close()} title="退出桌宠">×</button>
