@@ -1,5 +1,7 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { createRoot } from 'react-dom/client'
+import { invoke } from '@tauri-apps/api/core'
+import { open } from '@tauri-apps/plugin-dialog'
 import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification'
 import { defaultProfile, loadProfile, ProfilePanel, type PetProfile } from './profile'
 import { motionForEmotion, shouldKeepCurrentBubble, speechTuning, type Emotion } from './personality'
@@ -8,6 +10,9 @@ import './styles.css'
 
 const bridgeUrl = import.meta.env.VITE_DSH_PET_BRIDGE ?? 'http://127.0.0.1:3080/dsh-pet/events'
 const fallbackBridgeToken = import.meta.env.VITE_DSH_PET_TOKEN ?? 'change-me-before-production'
+
+type BootstrapState = 'checking' | 'ready' | 'missing-dsh' | 'restart-required' | 'failed'
+type BootstrapReport = { state: BootstrapState; message: string; dshPath?: string; detail?: string }
 
 function speak(text: string, emotion: Emotion, intensity: number, profile: PetProfile) {
   if (!('speechSynthesis' in window) || !text) return
@@ -65,6 +70,7 @@ function App() {
   const [connected, setConnected] = useState(false)
   const [profile, setProfile] = useState<PetProfile>(() => loadProfile())
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [bootstrap, setBootstrap] = useState<BootstrapReport>({ state: 'checking', message: '正在一键配置桌宠插件…' })
   const resetTimer = useRef<number>()
   const speaking = emotion === 'speaking' || emotion === 'happy' || emotion === 'gentle'
   const bridgeToken = profile.bridgeToken || fallbackBridgeToken
@@ -77,6 +83,27 @@ function App() {
     tone: profile.tone,
   }), [profile.name, profile.introduction, profile.relationship, profile.tone])
 
+  const runBootstrap = useCallback(async (dshPath?: string) => {
+    setBootstrap({ state: 'checking', message: '正在一键配置桌宠插件…' })
+    setConnected(false)
+    try {
+      const report = await invoke<BootstrapReport>('ensure_dsh_plugin', { dshPath: dshPath ?? null })
+      setBootstrap(report)
+      setMessage(report.message)
+    } catch (error) {
+      const report = { state: 'failed' as const, message: '自动配置没有完成，请重试。', detail: String(error) }
+      setBootstrap(report)
+      setMessage(report.message)
+    }
+  }, [])
+
+  useEffect(() => { void runBootstrap() }, [runBootstrap])
+
+  const chooseDsh = async () => {
+    const selected = await open({ title: '选择 DeepSeek Harness 的 dsh 可执行文件', multiple: false, directory: false })
+    if (typeof selected === 'string') await runBootstrap(selected)
+  }
+
   useEffect(() => {
     // Only the text persona crosses the loopback bridge. Local skins, samples,
     // system voice choices, and the authentication token stay in this app.
@@ -84,6 +111,7 @@ function App() {
   }, [profileUrl, characterProfile])
 
   useEffect(() => {
+    if (bootstrap.state !== 'ready') return
     // EventSource cannot attach custom headers. The bridge also accepts the query token for native companions.
     const source = new EventSource(eventSourceUrl)
     source.onopen = () => { setConnected(true); setMessage('已连接到 DeepSeek Harness') }
@@ -103,7 +131,7 @@ function App() {
       }
     })
     return () => { source.close(); if (resetTimer.current) window.clearTimeout(resetTimer.current) }
-  }, [eventSourceUrl, profile])
+  }, [bootstrap.state, eventSourceUrl, profile])
 
   const saveProfile = async (next: PetProfile) => {
     setProfile(next); localStorage.setItem('dsh-pet-profile', JSON.stringify(next)); setSettingsOpen(false)
@@ -112,7 +140,12 @@ function App() {
   return <main className="stage" data-connected={connected}>
     <PetAvatar emotion={emotion} intensity={intensity} speaking={speaking} skin={profile.skinDataUrl} name={profile.name || defaultProfile.name} />
     <Live2DStage emotion={emotion} modelUrl={profile.live2dModelUrl || (import.meta.env.VITE_LIVE2D_MODEL_URL ?? '')} />
-    <section className="bubble"><strong>{profile.name || defaultProfile.name}</strong><span><i className="status-dot" />{message}</span></section>
+    {bootstrap.state !== 'ready' && bootstrap.state !== 'checking' && <button
+      className="bootstrap-action"
+      title={bootstrap.detail}
+      onClick={() => bootstrap.state === 'missing-dsh' || bootstrap.state === 'failed' ? void chooseDsh() : void runBootstrap(bootstrap.dshPath)}
+    >{bootstrap.state === 'restart-required' ? '我已重启，重新检测' : '选择 DSH 并自动安装'}</button>}
+    <section className="bubble"><strong>{profile.name || defaultProfile.name}</strong><span title={bootstrap.detail}><i className="status-dot" />{message}</span></section>
     <button className="mute" onClick={() => window.speechSynthesis.cancel()} title="停止朗读">×</button>
     <button className="settings" onClick={() => setSettingsOpen(true)} title="角色设置">⚙</button>
     {settingsOpen && <ProfilePanel value={profile} onSave={saveProfile} onClose={() => setSettingsOpen(false)} />}

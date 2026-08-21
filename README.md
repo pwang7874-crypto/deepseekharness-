@@ -11,18 +11,27 @@
 - 回答时展示文字气泡，并根据开心、思考、担心、兴奋等情绪改变动作。
 - DSH 任务完成或失败时显示气泡并发送系统通知。
 - GitHub Actions 分别在 Windows x64、Linux x64、macOS ARM64 与 macOS Intel 上构建安装包。
+- 桌面安装包内置 DSH 插件，首次启动自动查找 DSH、安装插件并启动 `web` profile；无需复制仓库链接或运行终端命令。
+
+## 普通用户：一键安装
+
+1. 打开 GitHub 仓库的 **Releases** 页面，下载自己系统的安装包（Windows `.exe`、Linux `.AppImage`/`.deb`、macOS `.app`）。
+2. 安装并打开 **DSH Pet Voice**。程序会自动找到本机 `dsh`、安装随程序携带的 `dsh-pet-voice-v2` 插件并连接事件桥。
+3. 如果 DSH 已经在运行，首次安装后按桌宠提示重启一次 DSH；如果没有自动找到，点气泡上方的“选择 DSH 并自动安装”，只需选择 `dsh`、`dsh.exe` 或 `dsh.cmd`。
+
+直接把 GitHub 仓库网址发给 DeepSeek Harness 不会安装桌面窗口：仓库是源码，真正给普通用户使用的是 Releases 中的系统安装包。桌宠是透明置顶的独立桌面窗口，不会显示在 DSH 聊天消息区域里。
 
 ## 开发结构
 
 - `packages/dsh-pet-plugin`：可安装的 DSH host 插件，提供本地事件流、任务状态与提醒工具。
 - `apps/pet-companion`：Tauri 2 桌面窗口，连接插件的事件流，驱动情绪、动画和通知。
 
-## 启动
+## 开发者启动
 
 1. 安装 Node.js 24、pnpm 11、Rust stable，以及当前系统所需的 [Tauri 2 前置依赖](https://v2.tauri.app/start/prerequisites/)。
 2. 运行 `pnpm install && pnpm build`。
-3. 在 DSH profile 中安装 `packages/dsh-pet-plugin`，并把 `pet-bridge.token` 改为一个随机值。
-4. 在桌宠设置中填写同一个 token，然后运行 `pnpm dev:companion`。
+3. 运行 `pnpm --dir apps/pet-companion prepare:plugin`，它会构建插件并生成桌面端内置资源。
+4. 运行 `pnpm dev:companion`。需要调试手动安装时，可执行 `dsh plugin --profile web add ./apps/pet-companion/src-tauri/resources/dsh-pet-plugin.tgz`。
 
 安装插件后，桌面端连接 `http://127.0.0.1:3080/dsh-pet/events`。它使用 token 验证，拒绝非本机和未验证请求。
 
@@ -33,6 +42,8 @@ pnpm --filter @dsh-pet/companion tauri build
 ```
 
 每次推送到 `main` 都会执行类型检查与行为测试，然后生成各平台的 GitHub Actions artifacts。macOS 构建目前未进行 Apple 公证，首次打开可能需要在“隐私与安全性”中手动允许；正式发布时应配置开发者签名和公证凭据。
+
+推送 `v*` 标签会自动创建 GitHub Release 并上传四个平台的安装包，用户只需下载、安装、打开。当前安装包尚未进行 Windows 代码签名和 Apple 公证，因此系统可能显示发布者未知或安全提醒；这不影响插件内置和自动配置，但公开分发前建议配置签名证书。
 
 ## 开源组件与许可
 

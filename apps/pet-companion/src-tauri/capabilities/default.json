@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Minimum permissions for the desktop pet.",
   "windows": ["pet"],
-  "permissions": ["core:default", "notification:default", "global-shortcut:allow-register", "global-shortcut:allow-unregister"]
+  "permissions": ["core:default", "notification:default", "dialog:allow-open", "global-shortcut:allow-register", "global-shortcut:allow-unregister"]
 }

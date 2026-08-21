@@ -1,6 +1,6 @@
 {
   "name": "dsh-pet-voice-v2",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Desktop pet event bridge for DeepSeek Harness",
   "license": "MIT",
   "type": "module",

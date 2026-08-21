@@ -6,6 +6,6 @@
     "build": "pnpm --filter './packages/**' --filter './apps/**' build",
     "check": "pnpm --filter './packages/**' --filter './apps/**' check",
     "test": "pnpm --filter './packages/**' --filter './apps/**' test",
-    "dev:companion": "pnpm --filter @dsh-pet/companion dev"
+    "dev:companion": "pnpm --dir apps/pet-companion tauri dev"
   }
 }

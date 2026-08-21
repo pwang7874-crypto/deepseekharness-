@@ -1,6 +1,6 @@
 [package]
 name = "dsh-pet-companion"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 [build-dependencies]
@@ -10,3 +10,5 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = ["tray-icon", "macos-private-api"] }
 tauri-plugin-notification = "2"
 tauri-plugin-global-shortcut = "2"
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
