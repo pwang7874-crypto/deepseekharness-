@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
 import { createRoot } from 'react-dom/client'
 import { invoke } from '@tauri-apps/api/core'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 import { open } from '@tauri-apps/plugin-dialog'
 import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification'
 import { defaultProfile, loadProfile, ProfilePanel, type PetProfile } from './profile'
@@ -100,8 +101,15 @@ function App() {
   useEffect(() => { void runBootstrap() }, [runBootstrap])
 
   const chooseDsh = async () => {
-    const selected = await open({ title: '选择 DeepSeek Harness 的 dsh 可执行文件', multiple: false, directory: false })
+    const selected = await open({ title: '选择 DSH Desktop.app 或 dsh 可执行文件', multiple: false, directory: false })
     if (typeof selected === 'string') await runBootstrap(selected)
+  }
+
+  const beginWindowDrag = (event: ReactPointerEvent<HTMLElement>) => {
+    if (event.button !== 0 || settingsOpen) return
+    const target = event.target as HTMLElement
+    if (target.closest('button,input,textarea,select,label,a,[role="dialog"]')) return
+    void getCurrentWindow().startDragging()
   }
 
   useEffect(() => {
@@ -137,16 +145,20 @@ function App() {
     setProfile(next); localStorage.setItem('dsh-pet-profile', JSON.stringify(next)); setSettingsOpen(false)
   }
 
-  return <main className="stage" data-connected={connected}>
-    <PetAvatar emotion={emotion} intensity={intensity} speaking={speaking} skin={profile.skinDataUrl} name={profile.name || defaultProfile.name} />
-    <Live2DStage emotion={emotion} modelUrl={profile.live2dModelUrl || (import.meta.env.VITE_LIVE2D_MODEL_URL ?? '')} />
+  return <main className="stage" data-connected={connected} onPointerDown={beginWindowDrag}>
+    <div className="drag-handle" data-tauri-drag-region title="按住拖动桌宠"><i /><i /><i /></div>
+    <div className="avatar-stage" data-tauri-drag-region>
+      <PetAvatar emotion={emotion} intensity={intensity} speaking={speaking} skin={profile.skinDataUrl} name={profile.name || defaultProfile.name} />
+      <Live2DStage emotion={emotion} modelUrl={profile.live2dModelUrl || (import.meta.env.VITE_LIVE2D_MODEL_URL ?? '')} />
+    </div>
     {bootstrap.state !== 'ready' && bootstrap.state !== 'checking' && <button
       className="bootstrap-action"
       title={bootstrap.detail}
       onClick={() => bootstrap.state === 'missing-dsh' || bootstrap.state === 'failed' ? void chooseDsh() : void runBootstrap(bootstrap.dshPath)}
     >{bootstrap.state === 'restart-required' ? '我已重启，重新检测' : '选择 DSH 并自动安装'}</button>}
     <section className="bubble"><strong>{profile.name || defaultProfile.name}</strong><span title={bootstrap.detail}><i className="status-dot" />{message}</span></section>
-    <button className="mute" onClick={() => window.speechSynthesis.cancel()} title="停止朗读">×</button>
+    <button className="mute" onClick={() => window.speechSynthesis.cancel()} title="停止朗读">■</button>
+    <button className="close" onClick={() => void getCurrentWindow().close()} title="退出桌宠">×</button>
     <button className="settings" onClick={() => setSettingsOpen(true)} title="角色设置">⚙</button>
     {settingsOpen && <ProfilePanel value={profile} onSave={saveProfile} onClose={() => setSettingsOpen(false)} />}
   </main>

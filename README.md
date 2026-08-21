@@ -31,7 +31,7 @@
 1. 安装 Node.js 24、pnpm 11、Rust stable，以及当前系统所需的 [Tauri 2 前置依赖](https://v2.tauri.app/start/prerequisites/)。
 2. 运行 `pnpm install && pnpm build`。
 3. 运行 `pnpm --dir apps/pet-companion prepare:plugin`，它会构建插件并生成桌面端内置资源。
-4. 运行 `pnpm dev:companion`。需要调试手动安装时，可执行 `dsh plugin --profile web add ./apps/pet-companion/src-tauri/resources/dsh-pet-plugin.tgz`。
+4. 运行 `pnpm dev:companion`。伴侣会优先识别 macOS/Windows 上的 DSH Desktop，并把插件安装到它当前启用的配置；找不到桌面版时才回退到 PATH 中的 `dsh` CLI。需要调试 CLI 模式的手动安装时，可执行 `dsh plugin --profile web add ./apps/pet-companion/src-tauri/resources/dsh-pet-plugin.tgz`。
 
 安装插件后，桌面端连接 `http://127.0.0.1:3080/dsh-pet/events`。它使用 token 验证，拒绝非本机和未验证请求。
 
