@@ -51,11 +51,11 @@ jobs:
           - name: macOS ARM64
             platform: macos-latest
             target: aarch64-apple-darwin
-            args: --target aarch64-apple-darwin --bundles app --no-sign
+            args: --target aarch64-apple-darwin --bundles app
           - name: macOS Intel
             platform: macos-latest
             target: x86_64-apple-darwin
-            args: --target x86_64-apple-darwin --bundles app --no-sign
+            args: --target x86_64-apple-darwin --bundles app
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4

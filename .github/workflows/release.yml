@@ -25,11 +25,11 @@ jobs:
           - name: macOS ARM64
             platform: macos-latest
             target: aarch64-apple-darwin
-            args: --target aarch64-apple-darwin --bundles app --no-sign
+            args: --target aarch64-apple-darwin --bundles app
           - name: macOS Intel
             platform: macos-latest
             target: x86_64-apple-darwin
-            args: --target x86_64-apple-darwin --bundles app --no-sign
+            args: --target x86_64-apple-darwin --bundles app
     name: Release ${{ matrix.name }}
     runs-on: ${{ matrix.platform }}
     steps:
@@ -56,8 +56,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: apps/pet-companion
-          tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'v0.2.0-beta.1' }}
-          releaseName: DSH Pet Voice ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'v0.2.0-beta.1' }}
+          tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'v0.2.0-beta.2' }}
+          releaseName: DSH Pet Voice ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'v0.2.0-beta.2' }}
           releaseCommitish: ${{ github.sha }}
           releaseBody: 下载与你电脑系统相符的安装包。首次打开桌宠会自动寻找 DSH、安装内置插件并连接，不需要运行 Git 或 pnpm 命令。
           releaseDraft: false
