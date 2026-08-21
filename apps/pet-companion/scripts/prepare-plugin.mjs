@@ -7,23 +7,23 @@ const appDir = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const pluginDir = resolve(appDir, '../../packages/dsh-pet-plugin')
 const resourcesDir = join(appDir, 'src-tauri/resources')
 const target = join(resourcesDir, 'dsh-pet-plugin.tgz')
-const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
+const pnpmCli = process.env.npm_execpath
+const runPnpm = (args) => pnpmCli
+  ? spawnSync(process.execPath, [pnpmCli, ...args], { cwd: pluginDir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+  : spawnSync(process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm', args, {
+    cwd: pluginDir,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    shell: process.platform === 'win32',
+  })
 
 mkdirSync(resourcesDir, { recursive: true })
 rmSync(target, { force: true })
-const build = spawnSync(pnpm, ['run', 'build'], {
-  cwd: pluginDir,
-  encoding: 'utf8',
-  stdio: ['ignore', 'pipe', 'pipe'],
-})
-if (build.status !== 0) throw new Error(build.stderr || build.stdout || '插件构建失败')
+const build = runPnpm(['run', 'build'])
+if (build.status !== 0) throw new Error(build.error?.message || build.stderr || build.stdout || '插件构建失败')
 
-const result = spawnSync(pnpm, ['pack', '--pack-destination', resourcesDir], {
-  cwd: pluginDir,
-  encoding: 'utf8',
-  stdio: ['ignore', 'pipe', 'pipe'],
-})
-if (result.status !== 0) throw new Error(result.stderr || result.stdout || '插件打包失败')
+const result = runPnpm(['pack', '--pack-destination', resourcesDir])
+if (result.status !== 0) throw new Error(result.error?.message || result.stderr || result.stdout || '插件打包失败')
 
 const packed = readdirSync(resourcesDir)
   .filter((name) => name.endsWith('.tgz') && name !== 'dsh-pet-plugin.tgz')
