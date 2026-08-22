@@ -3,7 +3,6 @@ name: Publish desktop installers
 on:
   push:
     tags: ["v*"]
-    branches: [fix/pet-bridge-namespace]
 
 permissions:
   contents: write
