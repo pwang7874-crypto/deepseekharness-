@@ -1,6 +1,7 @@
 import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings';
 import { defineTool } from '@deepseek-ai/dsh-tools';
 import z from '@deepseek-ai/schemastery';
+import { createServer } from 'node:http';
 export const name = 'dsh-pet-voice-v2';
 export const inject = ['tools', 'settings', 'webServer', 'systemPrompt'];
 const Config = z.object({
@@ -9,6 +10,8 @@ const Config = z.object({
     allowModelNotifications: z.boolean().default(true),
 }).default({ token: 'change-me-before-production', completionReminder: true, allowModelNotifications: true });
 const NS = settingsNamespace('pet-bridge');
+const BRIDGE_HOST = '127.0.0.1';
+const BRIDGE_PORT = 3080;
 class EventHub {
     clients = new Set();
     publish(event) {
@@ -38,40 +41,88 @@ export function apply(ctx, config) {
         const queryToken = new URL(req.url, 'http://127.0.0.1').searchParams.get('token');
         return headerToken === current().token || queryToken === current().token;
     };
-    // dsh-web-server supplies this service at runtime. Keep the cast local until
-    // DSH publishes its web-server type augmentation as a standalone peer package.
+    const handleEvents = (req, res) => {
+        if (!authorized(req))
+            return sendJson(res, 401, { error: 'invalid desktop companion token' });
+        res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive', 'access-control-allow-origin': '*' });
+        res.write(`event: ready\ndata: ${JSON.stringify({ at: Date.now() })}\n\n`);
+        const detach = hub.attach(res);
+        req.on('close', detach);
+    };
+    const handleProfile = async (req, res) => {
+        if (!authorized(req))
+            return sendJson(res, 401, { error: 'invalid desktop companion token' });
+        if (req.method === 'OPTIONS') {
+            res.writeHead(204, { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'GET,POST,OPTIONS', 'access-control-allow-headers': 'content-type,x-dsh-pet-token' });
+            return res.end();
+        }
+        if (req.method === 'GET')
+            return sendJson(res, 200, profile);
+        if (req.method !== 'POST')
+            return sendJson(res, 405, { error: 'method not allowed' });
+        let body = '';
+        for await (const chunk of req)
+            body += typeof chunk === 'string' ? chunk : new TextDecoder().decode(chunk);
+        try {
+            const next = JSON.parse(body);
+            profile = { name: String(next.name || '小深').slice(0, 40), introduction: String(next.introduction || '').slice(0, 1000), relationship: String(next.relationship || '朋友').slice(0, 40), tone: String(next.tone || '自然').slice(0, 200) };
+            sendJson(res, 200, profile);
+        }
+        catch {
+            sendJson(res, 400, { error: 'invalid profile JSON' });
+        }
+    };
+    // `dsh web` normally owns port 3080, while DSH Desktop deliberately starts
+    // its internal web server on a random port. Reuse the public web server when
+    // it already owns 3080; otherwise expose only these two bridge routes on a
+    // dedicated loopback server so the native companion has a stable endpoint.
+    // This avoids relying on private Electron state or exposing the bridge on LAN.
     const webServer = ctx.webServer;
-    webServer.register({ kind: 'exact', path: '/dsh-pet/events', handler: (req, res) => {
-            if (!authorized(req))
-                return sendJson(res, 401, { error: 'invalid desktop companion token' });
-            res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive', 'access-control-allow-origin': '*' });
-            res.write(`event: ready\ndata: ${JSON.stringify({ at: Date.now() })}\n\n`);
-            const detach = hub.attach(res);
-            req.on('close', detach);
-        } });
-    webServer.register({ kind: 'exact', path: '/dsh-pet/profile', handler: async (req, res) => {
-            if (!authorized(req))
-                return sendJson(res, 401, { error: 'invalid desktop companion token' });
-            if (req.method === 'OPTIONS') {
-                res.writeHead(204, { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'GET,POST,OPTIONS', 'access-control-allow-headers': 'content-type,x-dsh-pet-token' });
-                return res.end();
-            }
-            if (req.method === 'GET')
-                return sendJson(res, 200, profile);
-            if (req.method !== 'POST')
-                return sendJson(res, 405, { error: 'method not allowed' });
-            let body = '';
-            for await (const chunk of req)
-                body += typeof chunk === 'string' ? chunk : new TextDecoder().decode(chunk);
+    if (webServer.port === BRIDGE_PORT) {
+        webServer.register({ kind: 'exact', path: '/dsh-pet/events', handler: handleEvents });
+        webServer.register({ kind: 'exact', path: '/dsh-pet/profile', handler: handleProfile });
+    }
+    else {
+        ctx.effect(async () => {
+            const server = createServer((req, res) => {
+                const path = new URL(req.url ?? '/', `http://${BRIDGE_HOST}:${BRIDGE_PORT}`).pathname;
+                const task = path === '/dsh-pet/events'
+                    ? handleEvents(req, res)
+                    : path === '/dsh-pet/profile'
+                        ? handleProfile(req, res)
+                        : sendJson(res, 404, { error: 'not found' });
+                Promise.resolve(task).catch((error) => {
+                    ctx.logger('dsh-pet').error(error);
+                    if (!res.headersSent)
+                        sendJson(res, 500, { error: 'desktop bridge failure' });
+                    else
+                        res.end();
+                });
+            });
             try {
-                const next = JSON.parse(body);
-                profile = { name: String(next.name || '小深').slice(0, 40), introduction: String(next.introduction || '').slice(0, 1000), relationship: String(next.relationship || '朋友').slice(0, 40), tone: String(next.tone || '自然').slice(0, 200) };
-                sendJson(res, 200, profile);
+                await new Promise((resolve, reject) => {
+                    const onError = (error) => reject(error);
+                    server.once('error', onError);
+                    server.listen(BRIDGE_PORT, BRIDGE_HOST, () => {
+                        server.off('error', onError);
+                        resolve();
+                    });
+                });
             }
-            catch {
-                sendJson(res, 400, { error: 'invalid profile JSON' });
+            catch (error) {
+                if (error.code === 'EADDRINUSE') {
+                    ctx.logger('dsh-pet').warn(`port ${BRIDGE_PORT} is already in use; keeping DSH active`);
+                    return () => { };
+                }
+                throw error;
             }
-        } });
+            ctx.logger('dsh-pet').info(`desktop bridge listening on http://${BRIDGE_HOST}:${BRIDGE_PORT}`);
+            return () => new Promise((resolve, reject) => {
+                server.close((error) => error ? reject(error) : resolve());
+            });
+        }, 'dsh-pet loopback bridge');
+    }
+    ;
     ctx.systemPrompt.context({
         name: 'dsh-pet:character-profile', order: 35,
         text: () => `桌宠角色设定：你的名字是「${profile.name}」。你与用户的关系是「${profile.relationship}」。人物介绍：${profile.introduction || '未填写'}。对话语气：${profile.tone}。自然地遵循这个设定，不要每次都复述设定，也不要声称现实中具有人类身份。`,

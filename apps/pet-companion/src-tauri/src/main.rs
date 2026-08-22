@@ -13,7 +13,7 @@ use std::{
 };
 use tauri::{path::BaseDirectory, Manager, WebviewUrl, WebviewWindowBuilder};
 
-const PLUGIN_VERSION: &str = "0.2.0";
+const PLUGIN_VERSION: &str = "0.2.1";
 const PLUGIN_NAME: &str = "dsh-pet-voice-v2";
 const CLI_PROFILE: &str = "web";
 const DESKTOP_PROFILE: &str = "desktop";
@@ -54,6 +54,17 @@ impl DshLauncher {
 struct DesktopProfileState {
     active: String,
     pending: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct PluginPackageState {
+    version: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PnpmModulesState {
+    store_dir: PathBuf,
 }
 
 #[derive(Serialize)]
@@ -131,6 +142,50 @@ fn desktop_home(home: &Path) -> PathBuf {
         .unwrap_or_else(|| home.join(".dsh"))
 }
 
+fn installed_plugin_version(launcher: &DshLauncher) -> Option<String> {
+    let dsh_home = launcher
+        .environment
+        .iter()
+        .find(|(key, _)| key == "DSH_HOME")
+        .map(|(_, value)| PathBuf::from(value))
+        .or_else(|| home_dir().map(|home| desktop_home(&home)))?;
+    let manifest = dsh_home
+        .join("profiles")
+        .join(&launcher.profile)
+        .join("node_modules")
+        .join(PLUGIN_NAME)
+        .join("package.json");
+    fs::read_to_string(manifest)
+        .ok()
+        .and_then(|text| serde_json::from_str::<PluginPackageState>(&text).ok())
+        .map(|package| package.version)
+}
+
+fn profile_pnpm_store(dsh_home: &Path, profile: &str) -> PathBuf {
+    let profile_dir = dsh_home.join("profiles").join(profile);
+    let modules_state = profile_dir.join("node_modules/.modules.yaml");
+    let existing = fs::read_to_string(modules_state)
+        .ok()
+        .and_then(|text| serde_json::from_str::<PnpmModulesState>(&text).ok())
+        .map(|state| state.store_dir);
+    existing
+        .and_then(|store| {
+            let version_dir = store
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| {
+                    name.strip_prefix('v')
+                        .is_some_and(|version| version.chars().all(|character| character.is_ascii_digit()))
+                });
+            if version_dir {
+                store.parent().map(Path::to_path_buf)
+            } else {
+                Some(store)
+            }
+        })
+        .unwrap_or_else(|| profile_dir.join(".pnpm-store"))
+}
+
 #[cfg(target_os = "macos")]
 fn desktop_launcher_from_path(path: &Path, home: &Path) -> Option<DshLauncher> {
     let app = if path.extension().and_then(|value| value.to_str()) == Some("app") {
@@ -150,6 +205,8 @@ fn desktop_launcher_from_path(path: &Path, home: &Path) -> Option<DshLauncher> {
     let user_data = home.join("Library/Application Support/DSH Desktop");
     let recovery_state = user_data.join("plugin-install-recovery/state.json");
     let profile = desktop_profile(&user_data);
+    let dsh_home = desktop_home(home);
+    let pnpm_store = profile_pnpm_store(&dsh_home, &profile);
     Some(DshLauncher {
         executable,
         prefix_args: vec![
@@ -160,7 +217,11 @@ fn desktop_launcher_from_path(path: &Path, home: &Path) -> Option<DshLauncher> {
             (OsString::from("ELECTRON_RUN_AS_NODE"), OsString::from("1")),
             (
                 OsString::from("DSH_HOME"),
-                desktop_home(home).into_os_string(),
+                dsh_home.into_os_string(),
+            ),
+            (
+                OsString::from("PNPM_CONFIG_STORE_DIR"),
+                pnpm_store.into_os_string(),
             ),
             (
                 OsString::from("DSH_DESKTOP_DEFAULT_PROFILE"),
@@ -204,6 +265,8 @@ fn desktop_launcher_from_path(path: &Path, home: &Path) -> Option<DshLauncher> {
         .join("DSH Desktop");
     let profile = desktop_profile(&user_data);
     let recovery_state = user_data.join("plugin-install-recovery/state.json");
+    let dsh_home = desktop_home(home);
+    let pnpm_store = profile_pnpm_store(&dsh_home, &profile);
     Some(DshLauncher {
         executable: executable.clone(),
         prefix_args: vec![
@@ -214,7 +277,11 @@ fn desktop_launcher_from_path(path: &Path, home: &Path) -> Option<DshLauncher> {
             (OsString::from("ELECTRON_RUN_AS_NODE"), OsString::from("1")),
             (
                 OsString::from("DSH_HOME"),
-                desktop_home(home).into_os_string(),
+                dsh_home.into_os_string(),
+            ),
+            (
+                OsString::from("PNPM_CONFIG_STORE_DIR"),
+                pnpm_store.into_os_string(),
             ),
             (
                 OsString::from("DSH_DESKTOP_DEFAULT_PROFILE"),
@@ -497,10 +564,11 @@ fn ensure_plugin(handle: &tauri::AppHandle, explicit: Option<PathBuf>) -> Bootst
         );
     }
 
-    // A plugin may already have been installed from DSH Desktop's built-in
-    // terminal or by an earlier companion build. Adopt that healthy config
-    // instead of installing it again merely because our local marker is absent.
-    let needs_install = !config_has_plugin;
+    // Adopt a manually installed plugin only when it is the bundled version.
+    // Older companions used only a marker/config check, which prevented bridge
+    // fixes from reaching profiles that already contained the plugin name.
+    let installed_version = installed_plugin_version(&dsh);
+    let needs_install = !config_has_plugin || installed_version.as_deref() != Some(PLUGIN_VERSION);
 
     if needs_install {
         if let Err(error) = fs::create_dir_all(&app_data) {

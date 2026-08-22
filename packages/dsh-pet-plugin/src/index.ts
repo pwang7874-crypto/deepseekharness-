@@ -2,6 +2,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import z from '@deepseek-ai/schemastery'
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 
 export const name = 'dsh-pet-voice-v2'
 export const inject = ['tools', 'settings', 'webServer', 'systemPrompt']
@@ -16,6 +17,8 @@ const Config = z.object({
   allowModelNotifications: z.boolean().default(true),
 }).default({ token: 'change-me-before-production', completionReminder: true, allowModelNotifications: true })
 const NS = settingsNamespace('pet-bridge')
+const BRIDGE_HOST = '127.0.0.1'
+const BRIDGE_PORT = 3080
 
 class EventHub {
   private clients = new Set<any>()
@@ -48,18 +51,15 @@ export function apply(ctx: Context, config: any) {
     return headerToken === current().token || queryToken === current().token
   }
 
-  // dsh-web-server supplies this service at runtime. Keep the cast local until
-  // DSH publishes its web-server type augmentation as a standalone peer package.
-  const webServer = (ctx as any).webServer
-  webServer.register({ kind: 'exact', path: '/dsh-pet/events', handler: (req: any, res: any) => {
+  const handleEvents = (req: any, res: any) => {
     if (!authorized(req)) return sendJson(res, 401, { error: 'invalid desktop companion token' })
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive', 'access-control-allow-origin': '*' })
     res.write(`event: ready\ndata: ${JSON.stringify({ at: Date.now() })}\n\n`)
     const detach = hub.attach(res)
     req.on('close', detach)
-  }})
+  }
 
-  webServer.register({ kind: 'exact', path: '/dsh-pet/profile', handler: async (req: any, res: any) => {
+  const handleProfile = async (req: any, res: any) => {
     if (!authorized(req)) return sendJson(res, 401, { error: 'invalid desktop companion token' })
     if (req.method === 'OPTIONS') { res.writeHead(204, { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'GET,POST,OPTIONS', 'access-control-allow-headers': 'content-type,x-dsh-pet-token' }); return res.end() }
     if (req.method === 'GET') return sendJson(res, 200, profile)
@@ -70,7 +70,54 @@ export function apply(ctx: Context, config: any) {
       profile = { name: String(next.name || '小深').slice(0, 40), introduction: String(next.introduction || '').slice(0, 1000), relationship: String(next.relationship || '朋友').slice(0, 40), tone: String(next.tone || '自然').slice(0, 200) }
       sendJson(res, 200, profile)
     } catch { sendJson(res, 400, { error: 'invalid profile JSON' }) }
-  }})
+  }
+
+  // `dsh web` normally owns port 3080, while DSH Desktop deliberately starts
+  // its internal web server on a random port. Reuse the public web server when
+  // it already owns 3080; otherwise expose only these two bridge routes on a
+  // dedicated loopback server so the native companion has a stable endpoint.
+  // This avoids relying on private Electron state or exposing the bridge on LAN.
+  const webServer = (ctx as any).webServer
+  if (webServer.port === BRIDGE_PORT) {
+    webServer.register({ kind: 'exact', path: '/dsh-pet/events', handler: handleEvents })
+    webServer.register({ kind: 'exact', path: '/dsh-pet/profile', handler: handleProfile })
+  } else {
+    ctx.effect(async () => {
+      const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+        const path = new URL(req.url ?? '/', `http://${BRIDGE_HOST}:${BRIDGE_PORT}`).pathname
+        const task = path === '/dsh-pet/events'
+          ? handleEvents(req, res)
+          : path === '/dsh-pet/profile'
+            ? handleProfile(req, res)
+            : sendJson(res, 404, { error: 'not found' })
+        Promise.resolve(task).catch((error) => {
+          ctx.logger('dsh-pet').error(error)
+          if (!res.headersSent) sendJson(res, 500, { error: 'desktop bridge failure' })
+          else res.end()
+        })
+      })
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const onError = (error: Error) => reject(error)
+          server.once('error', onError)
+          server.listen(BRIDGE_PORT, BRIDGE_HOST, () => {
+            server.off('error', onError)
+            resolve()
+          })
+        })
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'EADDRINUSE') {
+          ctx.logger('dsh-pet').warn(`port ${BRIDGE_PORT} is already in use; keeping DSH active`)
+          return () => {}
+        }
+        throw error
+      }
+      ctx.logger('dsh-pet').info(`desktop bridge listening on http://${BRIDGE_HOST}:${BRIDGE_PORT}`)
+      return () => new Promise<void>((resolve, reject) => {
+        server.close((error) => error ? reject(error) : resolve())
+      })
+    }, 'dsh-pet loopback bridge')
+  }
 
   ;(ctx as any).systemPrompt.context({
     name: 'dsh-pet:character-profile', order: 35,
