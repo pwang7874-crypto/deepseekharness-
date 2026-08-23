@@ -13,7 +13,7 @@ use std::{
 };
 use tauri::{path::BaseDirectory, Manager, WebviewUrl, WebviewWindowBuilder};
 
-const PLUGIN_VERSION: &str = "0.2.1";
+const PLUGIN_VERSION: &str = "0.2.2";
 const PLUGIN_NAME: &str = "dsh-pet-voice-v2";
 const CLI_PROFILE: &str = "web";
 const DESKTOP_PROFILE: &str = "desktop";
@@ -695,12 +695,13 @@ fn main() {
             let window = WebviewWindowBuilder::new(app, "pet", WebviewUrl::default())
                 .title("DSH Pet")
                 .inner_size(280.0, 330.0)
-                .min_inner_size(280.0, 330.0)
+                .min_inner_size(182.0, 215.0)
+                .max_inner_size(462.0, 545.0)
                 .transparent(true)
                 .decorations(false)
                 .always_on_top(true)
                 .skip_taskbar(true)
-                .resizable(false)
+                .resizable(true)
                 .build()?;
             window.set_ignore_cursor_events(false)?;
             Ok(())

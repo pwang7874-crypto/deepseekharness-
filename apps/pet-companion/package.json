@@ -1,7 +1,7 @@
 {
   "name": "@dsh-pet/companion",
   "private": true,
-  "version": "0.2.3",
+  "version": "0.2.4",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -12,13 +12,25 @@
     "tauri": "pnpm run prepare:plugin && tauri"
   },
   "dependencies": {
+    "@huggingface/transformers": "^4.2.0",
+    "@pixiv/three-vrm": "^3.5.5",
     "@tauri-apps/api": "^2.8.0",
     "@tauri-apps/plugin-dialog": "^2.4.0",
     "@tauri-apps/plugin-notification": "^2.3.0",
-    "pixi.js": "^6.5.10",
     "pixi-live2d-display": "^0.4.0",
+    "pixi.js": "^6.5.10",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "three": "^0.185.1"
   },
-  "devDependencies": { "@tauri-apps/cli": "^2.8.0", "@types/react": "^18.3.23", "@types/react-dom": "^18.3.7", "@vitejs/plugin-react": "^4.4.1", "typescript": "^5.8.3", "vite": "^6.3.5", "vitest": "^3.2.4" }
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.8.0",
+    "@types/react": "^18.3.23",
+    "@types/react-dom": "^18.3.7",
+    "@types/three": "^0.185.0",
+    "@vitejs/plugin-react": "^4.4.1",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5",
+    "vitest": "^3.2.4"
+  }
 }

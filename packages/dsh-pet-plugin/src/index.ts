@@ -1,11 +1,12 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import z from '@deepseek-ai/schemastery'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 
 export const name = 'dsh-pet-voice-v2'
-export const inject = ['tools', 'settings', 'webServer', 'systemPrompt']
+export const inject = ['tools', 'settings', 'webServer', 'systemPrompt', 'agents']
 
 type Emotion = 'neutral' | 'listening' | 'thinking' | 'speaking' | 'happy' | 'gentle' | 'concerned' | 'error'
 type PetEvent = { type: 'state' | 'task-complete' | 'task-error'; emotion: Emotion; text?: string; intensity?: number; taskId?: string; at: number }
@@ -42,6 +43,7 @@ export function apply(ctx: Context, config: any) {
   let current = () => config
   installSettingsSection(ctx, NS, Config, config, { setSource: (source: any) => { current = source }, onChange: () => {} })
   const hub = new EventHub()
+  let lastActiveSessionId = ''
   let profile: PetProfile = { name: '小深', introduction: '一只陪伴用户工作的智能桌宠', relationship: '朋友', tone: '温柔、自然、简洁' }
   const authorized = (req: any) => {
     const headerToken = req.headers['x-dsh-pet-token']
@@ -72,6 +74,32 @@ export function apply(ctx: Context, config: any) {
     } catch { sendJson(res, 400, { error: 'invalid profile JSON' }) }
   }
 
+  const handleChat = async (req: any, res: any) => {
+    if (!authorized(req)) return sendJson(res, 401, { error: 'invalid desktop companion token' })
+    if (req.method === 'OPTIONS') { res.writeHead(204, { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'POST,OPTIONS', 'access-control-allow-headers': 'content-type,x-dsh-pet-token' }); return res.end() }
+    if (req.method !== 'POST') return sendJson(res, 405, { error: 'method not allowed' })
+    let body = ''; for await (const chunk of req) body += typeof chunk === 'string' ? chunk : new TextDecoder().decode(chunk)
+    try {
+      const input = JSON.parse(body)
+      const text = String(input.text || '').trim().slice(0, 8000)
+      if (!text) return sendJson(res, 400, { error: '语音消息是空的' })
+      const agents = (ctx as any).agents
+      const requested = String(input.sessionId || '')
+      const roots = Array.from(agents.roots?.() ?? []) as any[]
+      const agent = (requested && agents.get(requested)) || (lastActiveSessionId && agents.get(lastActiveSessionId)) || roots.at(-1)
+      if (!agent) return sendJson(res, 409, { error: '请先在 DeepSeek Harness 中打开一个任务，再使用语音输入。' })
+      const message = createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } })
+      if (input.mode === 'steer' && agent.status !== 'idle') agent.steer(message)
+      else agent.followup(message)
+      lastActiveSessionId = String(agent.id)
+      hub.publish({ type: 'state', emotion: 'thinking', text: `收到：${text}`, intensity: 0.5, at: Date.now() })
+      return sendJson(res, 202, { accepted: true, sessionId: lastActiveSessionId })
+    } catch (error) {
+      ctx.logger('dsh-pet').warn(error)
+      return sendJson(res, 400, { error: `无法发送语音消息：${String(error)}` })
+    }
+  }
+
   // `dsh web` normally owns port 3080, while DSH Desktop deliberately starts
   // its internal web server on a random port. Reuse the public web server when
   // it already owns 3080; otherwise expose only these two bridge routes on a
@@ -81,6 +109,7 @@ export function apply(ctx: Context, config: any) {
   if (webServer.port === BRIDGE_PORT) {
     webServer.register({ kind: 'exact', path: '/dsh-pet/events', handler: handleEvents })
     webServer.register({ kind: 'exact', path: '/dsh-pet/profile', handler: handleProfile })
+    webServer.register({ kind: 'exact', path: '/dsh-pet/chat', handler: handleChat })
   } else {
     ctx.effect(async () => {
       const server = createServer((req: IncomingMessage, res: ServerResponse) => {
@@ -89,6 +118,8 @@ export function apply(ctx: Context, config: any) {
           ? handleEvents(req, res)
           : path === '/dsh-pet/profile'
             ? handleProfile(req, res)
+            : path === '/dsh-pet/chat'
+              ? handleChat(req, res)
             : sendJson(res, 404, { error: 'not found' })
         Promise.resolve(task).catch((error) => {
           ctx.logger('dsh-pet').error(error)
@@ -146,18 +177,20 @@ export function apply(ctx: Context, config: any) {
   // DSH's stable session event plane drives the default visual lifecycle. We
   // intentionally react only to turn boundaries, so tool/subagent steps remain
   // inside the same task and cannot trigger premature "completed" reminders.
-  ctx.on('session/event' as any, (_session: any, event: any) => {
+  ctx.on('session/event' as any, (session: any, event: any) => {
+    lastActiveSessionId = String(session?.id || lastActiveSessionId)
+    const data = event.data ?? event
     if (event.type === 'turn/start') {
       hub.publish({ type: 'state', emotion: 'thinking', text: '我正在认真处理这件事…', intensity: 0.45, at: Date.now() })
     } else if (event.type === 'assistant/chunk') {
       hub.publish({ type: 'state', emotion: 'speaking', intensity: 0.3, at: Date.now() })
     } else if (event.type === 'assistant/message') {
-      const text = Array.isArray(event.message?.content)
-        ? event.message.content.filter((block: any) => block?.type === 'text').map((block: any) => block.text).join('\n').trim()
+      const text = Array.isArray(data.message?.content)
+        ? data.message.content.filter((block: any) => block?.type === 'text').map((block: any) => block.text).join('\n').trim()
         : ''
       if (text) hub.publish({ type: 'state', emotion: 'speaking', text: text.slice(0, 4000), intensity: 0.55, at: Date.now() })
     } else if (event.type === 'turn/end') {
-      const reason = event.reason?.kind
+      const reason = data.reason?.kind
       if (reason === 'completed' && current().completionReminder) {
         hub.publish({ type: 'task-complete', emotion: 'happy', text: '任务已经完成啦，来看看结果吧！', intensity: 0.8, at: Date.now() })
       } else if (reason === 'error' || reason === 'blocked') {

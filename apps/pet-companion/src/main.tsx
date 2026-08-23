@@ -2,11 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 import { createRoot } from 'react-dom/client'
 import { invoke } from '@tauri-apps/api/core'
 import { getCurrentWindow } from '@tauri-apps/api/window'
+import { LogicalSize } from '@tauri-apps/api/dpi'
 import { open } from '@tauri-apps/plugin-dialog'
 import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification'
 import { defaultProfile, loadProfile, ProfilePanel, type PetProfile } from './profile'
-import { motionForEmotion, shouldKeepCurrentBubble, speechTuning, type Emotion } from './personality'
+import { shouldKeepCurrentBubble, speechTuning, type Emotion } from './personality'
 import type { PetEvent } from './types'
+import { AvatarStage } from './AvatarStage'
+import { startMicrophoneRecording, transcribeRecording } from './speech-input'
 import './styles.css'
 
 const bridgeUrl = import.meta.env.VITE_DSH_PET_BRIDGE ?? 'http://127.0.0.1:3080/dsh-pet/events'
@@ -14,6 +17,7 @@ const fallbackBridgeToken = import.meta.env.VITE_DSH_PET_TOKEN ?? 'change-me-bef
 
 type BootstrapState = 'checking' | 'ready' | 'missing-dsh' | 'restart-required' | 'failed'
 type BootstrapReport = { state: BootstrapState; message: string; dshPath?: string; detail?: string }
+const normalizeScale = (value: number) => Number.isFinite(value) ? Math.max(0.65, Math.min(1.65, value)) : 1
 
 function speak(text: string, emotion: Emotion, intensity: number, profile: PetProfile) {
   if (!('speechSynthesis' in window) || !text) return
@@ -28,42 +32,6 @@ function speak(text: string, emotion: Emotion, intensity: number, profile: PetPr
   window.speechSynthesis.speak(utterance)
 }
 
-function PetAvatar({ emotion, intensity, speaking, skin, name }: { emotion: Emotion; intensity: number; speaking: boolean; skin: string; name: string }) {
-  const classes = `pet pet-${emotion}${speaking ? ' is-speaking' : ''}`
-  return <div className={classes} style={{ '--intensity': intensity } as CSSProperties} aria-label={`桌宠状态：${emotion}`}>
-    <div className="sparkles" aria-hidden><i /><i /><i /></div>
-    <div className="ear ear-left" /><div className="ear ear-right" />
-    <div className="face"><div className="eye eye-left" /><div className="eye eye-right" /><div className="blush blush-left" /><div className="blush blush-right" /><div className="mouth" /></div>
-    <div className="body"><span className="badge">{name.slice(0, 6)}</span></div>
-    {skin && <img className="custom-skin" src={skin} alt={`${name}的皮肤`} />}
-  </div>
-}
-
-function Live2DStage({ emotion, modelUrl }: { emotion: Emotion; modelUrl: string }) {
-  const host = useRef<HTMLDivElement>(null)
-  const model = useRef<any>(null)
-  useEffect(() => {
-    if (!modelUrl || !host.current) return
-    let app: any; let alive = true
-    void (async () => {
-      const PIXI: any = await import('pixi.js')
-      ;(window as any).PIXI = PIXI
-      const { Live2DModel }: any = await import('pixi-live2d-display/cubism4')
-      app = new PIXI.Application({ width: 190, height: 210, transparent: true, antialias: true })
-      host.current?.appendChild(app.view)
-      const loaded = await Live2DModel.from(modelUrl)
-      if (!alive) return
-      loaded.anchor?.set?.(0.5, 1); loaded.x = 95; loaded.y = 205; loaded.scale.set(0.22)
-      app.stage.addChild(loaded); model.current = loaded
-    })().catch((error) => console.warn('[dsh-pet] Live2D model fallback:', error))
-    return () => { alive = false; model.current?.destroy?.(); app?.destroy?.(true, { children: true }) }
-  }, [modelUrl])
-  useEffect(() => {
-    model.current?.motion?.(motionForEmotion(emotion), 2)
-  }, [emotion])
-  return modelUrl ? <div className="live2d" ref={host} /> : null
-}
-
 function App() {
   const [emotion, setEmotion] = useState<Emotion>('neutral')
   const [intensity, setIntensity] = useState(0.45)
@@ -72,11 +40,15 @@ function App() {
   const [profile, setProfile] = useState<PetProfile>(() => loadProfile())
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [bootstrap, setBootstrap] = useState<BootstrapReport>({ state: 'checking', message: '正在一键配置桌宠插件…' })
+  const [scale, setScale] = useState(() => normalizeScale(Number(localStorage.getItem('dsh-pet-scale') || 1)))
+  const [micState, setMicState] = useState<'idle' | 'listening' | 'loading' | 'transcribing' | 'sending'>('idle')
   const resetTimer = useRef<number>()
+  const recording = useRef<Awaited<ReturnType<typeof startMicrophoneRecording>>>()
   const speaking = emotion === 'speaking' || emotion === 'happy' || emotion === 'gentle'
   const bridgeToken = profile.bridgeToken || fallbackBridgeToken
   const eventSourceUrl = useMemo(() => `${bridgeUrl}${bridgeUrl.includes('?') ? '&' : '?'}token=${encodeURIComponent(bridgeToken)}`, [bridgeToken])
   const profileUrl = useMemo(() => `${bridgeUrl.replace(/\/events(?:\?.*)?$/, '/profile')}?token=${encodeURIComponent(bridgeToken)}`, [bridgeToken])
+  const chatUrl = useMemo(() => `${bridgeUrl.replace(/\/events(?:\?.*)?$/, '/chat')}?token=${encodeURIComponent(bridgeToken)}`, [bridgeToken])
   const characterProfile = useMemo(() => ({
     name: profile.name,
     introduction: profile.introduction,
@@ -99,6 +71,15 @@ function App() {
   }, [])
 
   useEffect(() => { void runBootstrap() }, [runBootstrap])
+  useEffect(() => { void getCurrentWindow().setSize(new LogicalSize(Math.round(280 * scale), Math.round(330 * scale))) }, [])
+  useEffect(() => {
+    const syncToWindow = () => {
+      const next = normalizeScale(Math.min(window.innerWidth / 280, window.innerHeight / 330))
+      setScale(next); localStorage.setItem('dsh-pet-scale', String(next))
+    }
+    window.addEventListener('resize', syncToWindow)
+    return () => window.removeEventListener('resize', syncToWindow)
+  }, [])
 
   const chooseDsh = async () => {
     const selected = await open({ title: '选择 DSH Desktop.app 或 dsh 可执行文件', multiple: false, directory: false })
@@ -147,11 +128,45 @@ function App() {
     setProfile(next); localStorage.setItem('dsh-pet-profile', JSON.stringify(next)); setSettingsOpen(false)
   }
 
-  return <main className="stage" data-connected={connected} onPointerDown={beginWindowDrag}>
+  const resizePet = async (delta: number) => {
+    const next = normalizeScale(Math.round((scale + delta) * 10) / 10)
+    setScale(next); localStorage.setItem('dsh-pet-scale', String(next))
+    await getCurrentWindow().setSize(new LogicalSize(Math.round(280 * next), Math.round(330 * next)))
+  }
+
+  const toggleMicrophone = async () => {
+    if (micState === 'listening' && recording.current) {
+      const active = recording.current; recording.current = undefined
+      setMicState('transcribing'); setMessage('正在识别你刚才说的话…'); setEmotion('thinking')
+      try {
+        const blob = await active.stop()
+        const text = await transcribeRecording(blob, (state) => {
+          setMicState(state); setMessage(state === 'loading' ? '首次使用：正在下载并缓存本地语音模型…' : '正在把语音转换成文字…')
+        })
+        if (!text) throw new Error('没有识别到清晰语音，请靠近麦克风再试一次。')
+        setMicState('sending'); setMessage(`你说：${text}`)
+        const response = await fetch(chatUrl, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }) })
+        const result = await response.json().catch(() => ({}))
+        if (!response.ok) throw new Error(result.error || `DSH 拒绝了语音消息（${response.status}）`)
+        setMessage(`已发送：${text}`); setEmotion('thinking')
+      } catch (error) { setMessage(String(error).replace(/^Error:\s*/, '')); setEmotion('error') }
+      finally { setMicState('idle') }
+      return
+    }
+    if (micState !== 'idle') return
+    try {
+      window.speechSynthesis.cancel()
+      recording.current = await startMicrophoneRecording()
+      setMicState('listening'); setEmotion('listening'); setMessage('我在听，讲完后再点一次麦克风…')
+    } catch (error) { setMessage(`无法使用麦克风：${String(error).replace(/^Error:\s*/, '')}`); setEmotion('error') }
+  }
+
+  useEffect(() => () => recording.current?.cancel(), [])
+
+  return <main className="stage" data-connected={connected} onPointerDown={beginWindowDrag}><div className="pet-shell" style={{ '--pet-scale': scale } as CSSProperties}>
     <div className="drag-handle" data-tauri-drag-region title="按住拖动桌宠"><i /><i /><i /></div>
     <div className="avatar-stage" data-tauri-drag-region>
-      <PetAvatar emotion={emotion} intensity={intensity} speaking={speaking} skin={profile.skinDataUrl} name={profile.name || defaultProfile.name} />
-      <Live2DStage emotion={emotion} modelUrl={profile.live2dModelUrl || (import.meta.env.VITE_LIVE2D_MODEL_URL ?? '')} />
+      <AvatarStage profile={profile} emotion={emotion} intensity={intensity} speaking={speaking} />
     </div>
     {bootstrap.state !== 'ready' && bootstrap.state !== 'checking' && <button
       className="bootstrap-action"
@@ -160,10 +175,12 @@ function App() {
     >{bootstrap.state === 'restart-required' ? '我已重启，重新检测' : needsDshPicker ? '选择 DSH 并自动安装' : '重试自动安装'}</button>}
     <section className="bubble"><strong>{profile.name || defaultProfile.name}</strong><span title={bootstrap.detail}><i className="status-dot" />{message}</span></section>
     <button className="mute" onClick={() => window.speechSynthesis.cancel()} title="停止朗读">■</button>
+    <button className={`microphone mic-${micState}`} disabled={bootstrap.state !== 'ready'} onClick={() => void toggleMicrophone()} title={micState === 'listening' ? '停止录音并发送' : '语音输入'}>{micState === 'listening' ? '■' : '🎙'}</button>
+    <div className="scale-controls"><button onClick={() => void resizePet(-0.1)} title="缩小桌宠">−</button><button onClick={() => void resizePet(0.1)} title="放大桌宠">＋</button></div>
     <button className="close" onClick={() => void getCurrentWindow().close()} title="退出桌宠">×</button>
     <button className="settings" onClick={() => setSettingsOpen(true)} title="角色设置">⚙</button>
     {settingsOpen && <ProfilePanel value={profile} onSave={saveProfile} onClose={() => setSettingsOpen(false)} />}
-  </main>
+  </div></main>
 }
 
 createRoot(document.getElementById('root')!).render(<App />)

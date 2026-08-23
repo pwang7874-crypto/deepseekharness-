@@ -4,3 +4,8 @@ packages:
 
 allowBuilds:
   esbuild: true
+  # The app uses the browser/WebView runtime; these Node-only helpers are not
+  # executed by the shipped companion.
+  onnxruntime-node: false
+  protobufjs: false
+  sharp: false
