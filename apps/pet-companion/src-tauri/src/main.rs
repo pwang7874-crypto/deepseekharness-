@@ -9,11 +9,12 @@ use std::{
     net::{SocketAddr, TcpStream},
     path::{Path, PathBuf},
     process::{Command, Output, Stdio},
+    thread,
     time::Duration,
 };
 use tauri::{path::BaseDirectory, Manager, WebviewUrl, WebviewWindowBuilder};
 
-const PLUGIN_VERSION: &str = "0.2.2";
+const PLUGIN_VERSION: &str = "0.2.6";
 const PLUGIN_NAME: &str = "dsh-pet-voice-v2";
 const CLI_PROFILE: &str = "web";
 const DESKTOP_PROFILE: &str = "desktop";
@@ -27,6 +28,7 @@ struct DshLauncher {
     profile: String,
     desktop_app: Option<PathBuf>,
     recovery_state: Option<PathBuf>,
+    runtime_bin: Option<PathBuf>,
 }
 
 impl DshLauncher {
@@ -39,6 +41,7 @@ impl DshLauncher {
             profile: CLI_PROFILE.to_owned(),
             desktop_app: None,
             recovery_state: None,
+            runtime_bin: None,
         }
     }
 
@@ -46,6 +49,14 @@ impl DshLauncher {
         let mut command = command_for(&self.executable);
         command.args(&self.prefix_args);
         command.envs(self.environment.iter().cloned());
+        if let Some(runtime_bin) = self.runtime_bin.as_deref().filter(|path| path.is_dir()) {
+            let inherited = env::var_os("PATH").unwrap_or_default();
+            let paths = std::iter::once(runtime_bin.to_path_buf())
+                .chain(env::split_paths(&inherited));
+            if let Ok(path) = env::join_paths(paths) {
+                command.env("PATH", path);
+            }
+        }
         command
     }
 }
@@ -204,6 +215,7 @@ fn desktop_launcher_from_path(path: &Path, home: &Path) -> Option<DshLauncher> {
     }
     let user_data = home.join("Library/Application Support/DSH Desktop");
     let recovery_state = user_data.join("plugin-install-recovery/state.json");
+    let runtime_bin = user_data.join("runtime-commands/bin");
     let profile = desktop_profile(&user_data);
     let dsh_home = desktop_home(home);
     let pnpm_store = profile_pnpm_store(&dsh_home, &profile);
@@ -236,6 +248,7 @@ fn desktop_launcher_from_path(path: &Path, home: &Path) -> Option<DshLauncher> {
         profile,
         desktop_app: Some(app),
         recovery_state: Some(recovery_state),
+        runtime_bin: Some(runtime_bin),
     })
 }
 
@@ -265,6 +278,7 @@ fn desktop_launcher_from_path(path: &Path, home: &Path) -> Option<DshLauncher> {
         .join("DSH Desktop");
     let profile = desktop_profile(&user_data);
     let recovery_state = user_data.join("plugin-install-recovery/state.json");
+    let runtime_bin = user_data.join("runtime-commands/bin");
     let dsh_home = desktop_home(home);
     let pnpm_store = profile_pnpm_store(&dsh_home, &profile);
     Some(DshLauncher {
@@ -296,6 +310,7 @@ fn desktop_launcher_from_path(path: &Path, home: &Path) -> Option<DshLauncher> {
         profile,
         desktop_app: Some(executable),
         recovery_state: Some(recovery_state),
+        runtime_bin: Some(runtime_bin),
     })
 }
 
@@ -499,6 +514,52 @@ fn output_detail(output: &Output) -> String {
         .collect()
 }
 
+fn runtime_pnpm_is_ready(launcher: &DshLauncher) -> bool {
+    let Some(runtime_bin) = launcher.runtime_bin.as_deref() else {
+        return true;
+    };
+    runtime_bin
+        .join(if cfg!(windows) { "pnpm.cmd" } else { "pnpm" })
+        .is_file()
+}
+
+fn launch_desktop_app(path: &Path) -> io::Result<()> {
+    #[cfg(target_os = "macos")]
+    let mut command = {
+        let mut command = Command::new("open");
+        command.arg(path);
+        command
+    };
+    #[cfg(not(target_os = "macos"))]
+    let mut command = command_for(path);
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map(|_| ())
+}
+
+fn ensure_desktop_runtime(launcher: &DshLauncher) -> io::Result<()> {
+    let Some(desktop_app) = launcher.desktop_app.as_deref() else {
+        return Ok(());
+    };
+    if runtime_pnpm_is_ready(launcher) {
+        return Ok(());
+    }
+    launch_desktop_app(desktop_app)?;
+    for _ in 0..40 {
+        if runtime_pnpm_is_ready(launcher) {
+            return Ok(());
+        }
+        thread::sleep(Duration::from_millis(250));
+    }
+    Err(io::Error::new(
+        io::ErrorKind::NotFound,
+        "DSH Desktop did not prepare its packaged pnpm runtime",
+    ))
+}
+
 fn ensure_plugin(handle: &tauri::AppHandle, explicit: Option<PathBuf>) -> BootstrapReport {
     let Some(dsh) = find_dsh(explicit) else {
         return BootstrapReport::new(
@@ -508,6 +569,13 @@ fn ensure_plugin(handle: &tauri::AppHandle, explicit: Option<PathBuf>) -> Bootst
         );
     };
     let dsh_path = &dsh.display_path;
+    if let Err(error) = ensure_desktop_runtime(&dsh) {
+        return BootstrapReport::failed(
+            "DSH 内置安装器尚未准备好，请先打开一次 DSH Desktop 后重试。",
+            Some(dsh_path),
+            error.to_string(),
+        );
+    }
     let plugin_archive = match handle
         .path()
         .resolve("dsh-pet-plugin.tgz", BaseDirectory::Resource)
@@ -579,13 +647,15 @@ fn ensure_plugin(handle: &tauri::AppHandle, explicit: Option<PathBuf>) -> Bootst
             );
         }
         let archive = plugin_archive.to_string_lossy();
-        let output = match run_dsh(
+        let offline_output = match run_dsh(
             &dsh,
             &[
                 "plugin",
                 "--profile",
                 dsh.profile.as_str(),
                 "add",
+                "--offline",
+                "--ignore-scripts",
                 archive.as_ref(),
             ],
         ) {
@@ -598,11 +668,47 @@ fn ensure_plugin(handle: &tauri::AppHandle, explicit: Option<PathBuf>) -> Bootst
                 )
             }
         };
+        let output = if offline_output.status.success() {
+            offline_output
+        } else if dsh.recovery_state.as_deref().is_some_and(Path::is_file) {
+            offline_output
+        } else {
+            match run_dsh(
+                &dsh,
+                &[
+                    "plugin",
+                    "--profile",
+                    dsh.profile.as_str(),
+                    "add",
+                    "--ignore-scripts",
+                    archive.as_ref(),
+                ],
+            ) {
+                Ok(output) => output,
+                Err(error) => {
+                    return BootstrapReport::failed(
+                        "无法运行 DSH 插件安装命令。",
+                        Some(dsh_path),
+                        error.to_string(),
+                    )
+                }
+            }
+        };
         if !output.status.success() {
+            let detail = output_detail(&output);
+            let message = if detail.contains("pnpm not found") {
+                "没有找到 DSH 内置安装器，请先打开一次 DSH Desktop 后重试。"
+            } else if detail.contains("ERR_PNPM_META_FETCH_FAIL")
+                || detail.contains("ENOTFOUND")
+            {
+                "插件依赖下载失败，请检查网络后重试。"
+            } else {
+                "桌宠插件自动安装失败。"
+            };
             return BootstrapReport::failed(
-                "桌宠插件自动安装失败。",
+                message,
                 Some(dsh_path),
-                output_detail(&output),
+                detail,
             );
         }
         if let Err(error) = fs::write(&marker, PLUGIN_VERSION) {
@@ -635,18 +741,21 @@ fn ensure_plugin(handle: &tauri::AppHandle, explicit: Option<PathBuf>) -> Bootst
         );
     }
 
-    let mut command = if let Some(desktop_app) = &dsh.desktop_app {
-        #[cfg(target_os = "macos")]
-        {
-            let mut command = Command::new("open");
-            command.arg(desktop_app);
-            command
-        }
-        #[cfg(not(target_os = "macos"))]
-        {
-            command_for(desktop_app)
-        }
-    } else {
+    if let Some(desktop_app) = &dsh.desktop_app {
+        return match launch_desktop_app(desktop_app) {
+            Ok(()) => BootstrapReport::new(
+                "ready",
+                "插件已装入当前 DSH Desktop 配置；若尚未连接，请重启一次 DSH Desktop。",
+                Some(dsh_path),
+            ),
+            Err(error) => BootstrapReport::failed(
+                "插件已安装，但无法自动启动 DSH。",
+                Some(dsh_path),
+                error.to_string(),
+            ),
+        };
+    }
+    let mut command = {
         let mut command = dsh.command();
         command.arg("web");
         command
@@ -658,11 +767,7 @@ fn ensure_plugin(handle: &tauri::AppHandle, explicit: Option<PathBuf>) -> Bootst
     match command.spawn() {
         Ok(_) => BootstrapReport::new(
             "ready",
-            if dsh.desktop_app.is_some() {
-                "插件已装入当前 DSH Desktop 配置；若尚未连接，请重启一次 DSH Desktop。"
-            } else {
-                "桌宠已就绪，正在启动 DeepSeek Harness…"
-            },
+            "桌宠已就绪，正在启动 DeepSeek Harness…",
             Some(dsh_path),
         ),
         Err(error) => BootstrapReport::failed(
