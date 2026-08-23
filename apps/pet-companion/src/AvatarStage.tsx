@@ -25,7 +25,7 @@ function AutoRigAvatar({ src, emotion, speaking, name }: { src: string; emotion:
   </div>
 }
 
-function Live2DStage({ emotion, modelUrl }: { emotion: Emotion; modelUrl: string }) {
+function Live2DStage({ emotion, modelUrl, look }: { emotion: Emotion; modelUrl: string; look: { x: number; y: number } }) {
   const host = useRef<HTMLDivElement>(null)
   const model = useRef<any>(null)
   useEffect(() => {
@@ -45,6 +45,7 @@ function Live2DStage({ emotion, modelUrl }: { emotion: Emotion; modelUrl: string
     return () => { alive = false; model.current?.destroy?.(); app?.destroy?.(true, { children: true }) }
   }, [modelUrl])
   useEffect(() => { model.current?.motion?.(motionForEmotion(emotion), 2) }, [emotion])
+  useEffect(() => { model.current?.focus?.(look.x, -look.y) }, [look])
   return <div className="live2d" ref={host} />
 }
 
@@ -56,10 +57,10 @@ function expressionFor(emotion: Emotion) {
   return 'neutral'
 }
 
-function ThreeAvatar({ src, emotion, speaking }: { src: string; emotion: Emotion; speaking: boolean }) {
+function ThreeAvatar({ src, emotion, speaking, look }: { src: string; emotion: Emotion; speaking: boolean; look: { x: number; y: number } }) {
   const host = useRef<HTMLDivElement>(null)
-  const state = useRef({ emotion, speaking })
-  state.current = { emotion, speaking }
+  const state = useRef({ emotion, speaking, look })
+  state.current = { emotion, speaking, look }
   useEffect(() => {
     if (!host.current || !src) return
     const element = host.current
@@ -102,14 +103,14 @@ function ThreeAvatar({ src, emotion, speaking }: { src: string; emotion: Emotion
       const delta = clock.getDelta(); const elapsed = clock.elapsedTime
       const active = state.current
       root.position.y = Math.sin(elapsed * (active.emotion === 'happy' ? 4 : 2)) * (active.emotion === 'happy' ? 0.055 : 0.02)
-      root.rotation.y = Math.sin(elapsed * 0.75) * 0.08
+      root.rotation.y = Math.sin(elapsed * 0.75) * 0.08 + active.look.x * 0.06
       if (vrm) {
         vrm.update(delta)
         const manager = vrm.expressionManager
         for (const name of ['happy', 'relaxed', 'sad', 'surprised']) manager?.setValue(name, name === expressionFor(active.emotion) ? 0.72 : 0)
         manager?.setValue('aa', active.speaking ? 0.18 + Math.abs(Math.sin(elapsed * 11)) * 0.58 : 0)
         const head = vrm.humanoid?.getNormalizedBoneNode('head')
-        if (head) { head.rotation.z = Math.sin(elapsed * 1.1) * 0.035; head.rotation.x = Math.sin(elapsed * 0.8) * 0.025 }
+        if (head) { head.rotation.z = Math.sin(elapsed * 1.1) * 0.035; head.rotation.x = Math.sin(elapsed * 0.8) * 0.025 + active.look.y * 0.09; head.rotation.y = active.look.x * 0.16 }
       }
       renderer.render(scene, camera)
     }
@@ -119,7 +120,7 @@ function ThreeAvatar({ src, emotion, speaking }: { src: string; emotion: Emotion
   return <div className="three-avatar" ref={host} />
 }
 
-export function AvatarStage({ profile, emotion, intensity, speaking }: { profile: PetProfile; emotion: Emotion; intensity: number; speaking: boolean }) {
+export function AvatarStage({ profile, emotion, intensity, speaking, look }: { profile: PetProfile; emotion: Emotion; intensity: number; speaking: boolean; look: { x: number; y: number } }) {
   const [assetUrl, setAssetUrl] = useState('')
   useEffect(() => {
     let currentUrl = ''
@@ -131,8 +132,8 @@ export function AvatarStage({ profile, emotion, intensity, speaking }: { profile
     return () => { if (currentUrl) URL.revokeObjectURL(currentUrl) }
   }, [profile.avatarAssetId, profile.skinDataUrl])
   const name = profile.name || '小深'
-  if (profile.avatarMode === 'model3d' && assetUrl) return <ThreeAvatar src={assetUrl} emotion={emotion} speaking={speaking} />
-  if (profile.avatarMode === 'live2d' && profile.live2dModelUrl) return <Live2DStage emotion={emotion} modelUrl={profile.live2dModelUrl} />
+  if (profile.avatarMode === 'model3d' && assetUrl) return <ThreeAvatar src={assetUrl} emotion={emotion} speaking={speaking} look={look} />
+  if (profile.avatarMode === 'live2d' && profile.live2dModelUrl) return <Live2DStage emotion={emotion} modelUrl={profile.live2dModelUrl} look={look} />
   if ((profile.avatarMode === 'image' || profile.skinDataUrl) && assetUrl) return <AutoRigAvatar src={assetUrl} emotion={emotion} speaking={speaking} name={name} />
   return <BuiltinPet emotion={emotion} intensity={intensity} speaking={speaking} name={name} />
 }

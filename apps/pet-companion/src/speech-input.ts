@@ -1,3 +1,5 @@
+import { createVoiceActivityState, updateVoiceActivity } from './voice-activity'
+
 let worker: Worker | undefined
 
 async function mono16k(blob: Blob) {
@@ -36,11 +38,34 @@ export async function startMicrophoneRecording() {
   const recorder = new MediaRecorder(stream)
   recorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data) }
   recorder.start(250)
+  const audioContext = new AudioContext()
+  const analyser = audioContext.createAnalyser(); analyser.fftSize = 1024; analyser.smoothingTimeConstant = 0.35
+  audioContext.createMediaStreamSource(stream).connect(analyser)
+  const samples = new Float32Array(analyser.fftSize)
+  let activity = createVoiceActivityState(performance.now()); let frame = 0; let resolved = false
+  let resolveSpeechEnded!: () => void
+  const speechEnded = new Promise<void>((resolve) => { resolveSpeechEnded = resolve })
+  const finishActivity = () => { if (resolved) return; resolved = true; cancelAnimationFrame(frame); resolveSpeechEnded() }
+  const monitor = () => {
+    analyser.getFloatTimeDomainData(samples)
+    let energy = 0; for (const sample of samples) energy += sample * sample
+    const rms = Math.sqrt(energy / samples.length)
+    const update = updateVoiceActivity(activity, rms, performance.now()); activity = update.state
+    if (update.finished) finishActivity()
+    else frame = requestAnimationFrame(monitor)
+  }
+  monitor()
+  const cleanup = () => { finishActivity(); stream.getTracks().forEach((track) => track.stop()); void audioContext.close() }
+  let stopping = false
   return {
+    speechEnded,
     stop: () => new Promise<Blob>((resolve) => {
-      recorder.onstop = () => { stream.getTracks().forEach((track) => track.stop()); resolve(new Blob(chunks, { type: recorder.mimeType })) }
-      recorder.stop()
+      if (stopping) return resolve(new Blob(chunks, { type: recorder.mimeType }))
+      stopping = true
+      recorder.onstop = () => { cleanup(); resolve(new Blob(chunks, { type: recorder.mimeType })) }
+      if (recorder.state === 'inactive') { cleanup(); resolve(new Blob(chunks, { type: recorder.mimeType })) }
+      else recorder.stop()
     }),
-    cancel: () => { if (recorder.state !== 'inactive') recorder.stop(); stream.getTracks().forEach((track) => track.stop()) },
+    cancel: () => { if (stopping) return; stopping = true; if (recorder.state !== 'inactive') recorder.stop(); cleanup() },
   }
 }

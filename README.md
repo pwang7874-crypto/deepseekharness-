@@ -13,6 +13,8 @@
 - 桌宠支持 `−` / `＋` 一键缩放，也可拖动窗口边缘调整大小。
 - 支持音色参考样本；当前系统 TTS 可按情绪调整语速、音高与音量。
 - 回答时展示文字气泡，并根据开心、思考、担心、兴奋等情绪改变动作。
+- 空闲时会自主歪头、伸懒腰、打哈欠或睡觉；支持头部/身体分区触摸、双击玩耍、右键互动菜单和视线跟随。
+- 免手持语音会在检测到说话后的自然停顿时自动结束录音；开始录音会立即停止桌宠朗读，减少回声。
 - DSH 任务完成或失败时显示气泡并发送系统通知。
 - GitHub Actions 分别在 Windows x64、Linux x64、macOS ARM64 与 macOS Intel 上构建安装包。
 - 桌面安装包内置 DSH 插件，首次启动自动查找 DSH、安装插件并启动 `web` profile；无需复制仓库链接或运行终端命令。
@@ -50,6 +52,8 @@ Pull Request 会执行类型检查、行为测试和多平台构建验证。macO
 只有在确认体验后手动推送 `v*` 标签，才会创建 GitHub Release 并上传四个平台安装包；普通分支提交不会发布。当前安装包尚未进行 Windows 代码签名和 Apple 公证，因此系统可能显示发布者未知或安全提醒。
 
 ## 开源组件与许可
+
+完整的桌宠项目调研、许可证边界和融合清单见 [`docs/OPEN_SOURCE_RESEARCH.md`](docs/OPEN_SOURCE_RESEARCH.md)。
 
 - `zhuiyueya/dsh-voice`（MIT）：DSH 语音插件的双端包结构参考。
 - `guansss/pixi-live2d-display`（MIT）：可选 Live2D 渲染器；用户须自行提供具有使用权的 Cubism Core 与角色资产。

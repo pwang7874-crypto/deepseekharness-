@@ -16,12 +16,16 @@ export type PetProfile = {
   avatarMode: AvatarMode
   avatarAssetId: string
   avatarAssetName: string
+  autonomousMotion: boolean
+  handsFreeVoice: boolean
+  touchSounds: boolean
 }
 
 export const defaultProfile: PetProfile = {
   name: '小深', introduction: '一只陪伴我工作、学习和生活的智能桌宠', relationship: '朋友',
   tone: '温柔、自然、简洁', systemVoice: '', bridgeToken: '', skinDataUrl: '', live2dModelUrl: '', voiceSampleDataUrl: '',
   avatarMode: 'builtin', avatarAssetId: '', avatarAssetName: '',
+  autonomousMotion: true, handsFreeVoice: true, touchSounds: true,
 }
 
 export function loadProfile(): PetProfile {
@@ -61,6 +65,11 @@ export function ProfilePanel({ value, onSave, onClose }: { value: PetProfile; on
     <label>人物介绍<textarea value={draft.introduction} maxLength={1000} rows={3} onChange={(e) => set('introduction', e.target.value)} /></label>
     <label>说话语气<input value={draft.tone} maxLength={200} placeholder="例如：温柔、俏皮，偶尔撒娇" onChange={(e) => set('tone', e.target.value)} /></label>
     <label>系统音色<select value={draft.systemVoice} onChange={(e) => set('systemVoice', e.target.value)}><option value="">自动选择中文音色</option>{voices.map((voice) => <option key={voice.voiceURI} value={voice.voiceURI}>{voice.name} · {voice.lang}</option>)}</select></label>
+    <section className="pet-preferences"><strong>陪伴习惯</strong>
+      <label className="toggle-row"><span>自主小动作<small>空闲时伸懒腰、歪头和打哈欠</small></span><input type="checkbox" checked={draft.autonomousMotion} onChange={(e) => set('autonomousMotion', e.target.checked)} /></label>
+      <label className="toggle-row"><span>自然结束录音<small>说完停顿后自动识别，不必再点一次</small></span><input type="checkbox" checked={draft.handsFreeVoice} onChange={(e) => set('handsFreeVoice', e.target.checked)} /></label>
+      <label className="toggle-row"><span>触摸音效<small>摸摸和玩耍时播放轻柔反馈</small></span><input type="checkbox" checked={draft.touchSounds} onChange={(e) => set('touchSounds', e.target.checked)} /></label>
+    </section>
     <label>DSH 连接令牌<input type="password" value={draft.bridgeToken} placeholder="与 pet-bridge.token 保持一致" onChange={(e) => set('bridgeToken', e.target.value)} /></label>
     <fieldset className="avatar-choice"><legend>人物形象</legend>
       <label className="upload">上传 JPG/PNG/GIF，自动变成动态角色<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={(e) => void chooseAvatar(e, 'image')} /><span>{draft.avatarMode === 'image' && draft.avatarAssetName ? `已选择：${draft.avatarAssetName}` : '选择人物图片'}</span></label>
