@@ -1,13 +1,15 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "DSH Pet Voice",
-  "version": "0.1.0",
+  "version": "0.2.5",
   "identifier": "ai.deepseek.dsh-pet-voice",
   "build": { "beforeDevCommand": "pnpm dev", "beforeBuildCommand": "pnpm build", "devUrl": "http://localhost:1420", "frontendDist": "../dist" },
   "app": { "windows": [], "macOSPrivateApi": true, "security": { "csp": null } },
   "bundle": {
     "active": true,
     "targets": "all",
-    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"]
+    "macOS": { "signingIdentity": "-" },
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
+    "resources": { "resources/dsh-pet-plugin.tgz": "dsh-pet-plugin.tgz" }
   }
 }
