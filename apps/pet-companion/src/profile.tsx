@@ -55,7 +55,7 @@ export function ProfilePanel({ value, onSave, onClose }: { value: PetProfile; on
     } catch (error) { window.alert(`保存角色文件失败：${String(error)}`) }
   }
   return <aside className="profile-panel">
-    <header><strong>定制我的桌宠</strong><button onClick={onClose}>×</button></header>
+    <header><strong><i aria-hidden>♥</i> 我的专属小伙伴</strong><button onClick={onClose} title="关闭设置">×</button></header>
     <label>名字<input value={draft.name} maxLength={40} onChange={(e) => set('name', e.target.value)} /></label>
     <label>你们的关系<input list="relationship-options" value={draft.relationship} maxLength={40} onChange={(e) => set('relationship', e.target.value)} /><datalist id="relationship-options"><option value="情侣" /><option value="主仆" /><option value="朋友" /><option value="宠物" /><option value="家人" /><option value="搭档" /></datalist></label>
     <label>人物介绍<textarea value={draft.introduction} maxLength={1000} rows={3} onChange={(e) => set('introduction', e.target.value)} /></label>

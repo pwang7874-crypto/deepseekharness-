@@ -164,6 +164,7 @@ function App() {
   useEffect(() => () => recording.current?.cancel(), [])
 
   return <main className="stage" data-connected={connected} onPointerDown={beginWindowDrag}><div className="pet-shell" style={{ '--pet-scale': scale } as CSSProperties}>
+    <div className="ambient-decor" aria-hidden><i>♥</i><i>✦</i><i>●</i><i>✧</i><i>♥</i></div>
     <div className="drag-handle" data-tauri-drag-region title="按住拖动桌宠"><i /><i /><i /></div>
     <div className="avatar-stage" data-tauri-drag-region>
       <AvatarStage profile={profile} emotion={emotion} intensity={intensity} speaking={speaking} />
@@ -173,10 +174,10 @@ function App() {
       title={bootstrap.detail}
       onClick={() => needsDshPicker ? void chooseDsh() : void runBootstrap(bootstrap.dshPath)}
     >{bootstrap.state === 'restart-required' ? '我已重启，重新检测' : needsDshPicker ? '选择 DSH 并自动安装' : '重试自动安装'}</button>}
-    <section className="bubble"><strong>{profile.name || defaultProfile.name}</strong><span title={bootstrap.detail}><i className="status-dot" />{message}</span></section>
-    <button className="mute" onClick={() => window.speechSynthesis.cancel()} title="停止朗读">■</button>
+    <section className="bubble"><strong><b aria-hidden>♡</b>{profile.name || defaultProfile.name}<em>{connected ? '陪伴中' : '连接中'}</em></strong><span title={bootstrap.detail}><i className="status-dot" />{message}</span></section>
+    <button className="mute" onClick={() => window.speechSynthesis.cancel()} title="停止朗读">♪</button>
     <button className={`microphone mic-${micState}`} disabled={bootstrap.state !== 'ready'} onClick={() => void toggleMicrophone()} title={micState === 'listening' ? '停止录音并发送' : '语音输入'}>{micState === 'listening' ? '■' : '🎙'}</button>
-    <div className="scale-controls"><button onClick={() => void resizePet(-0.1)} title="缩小桌宠">−</button><button onClick={() => void resizePet(0.1)} title="放大桌宠">＋</button></div>
+    <div className="scale-controls"><button onClick={() => void resizePet(-0.1)} title="缩小桌宠"><span>−</span></button><button onClick={() => void resizePet(0.1)} title="放大桌宠"><span>＋</span></button></div>
     <button className="close" onClick={() => void getCurrentWindow().close()} title="退出桌宠">×</button>
     <button className="settings" onClick={() => setSettingsOpen(true)} title="角色设置">⚙</button>
     {settingsOpen && <ProfilePanel value={profile} onSave={saveProfile} onClose={() => setSettingsOpen(false)} />}
